@@ -1,13 +1,15 @@
 package spider
 
 import (
-	"fmt"
 	"log"
 	"strconv"
+	"sync"
 	"time"
 
+	"encora/bubbletea"
 	"encora/service"
 
+	"github.com/charmbracelet/bubbles/progress"
 	"github.com/falqondev/selenium"
 	"github.com/falqondev/selenium/chrome"
 	"github.com/pkg/errors"
@@ -15,11 +17,11 @@ import (
 
 // EncoraExtractor is responsible per extract all jobs details from the encora website
 type EncoraExtractor struct {
-	Config     EncoraConfig
-	TimeLimit  int
-	Logger     *log.Logger
-	DebugLevel int8
-	Wd         selenium.WebDriver
+	Config            EncoraConfig
+	Logger            *log.Logger
+	DebugLevel        int8
+	Wd                selenium.WebDriver
+	IsVisualExecution bool
 }
 
 type EncoraConfig struct {
@@ -29,7 +31,6 @@ type EncoraConfig struct {
 
 func (s *EncoraExtractor) prepareSelenium() (selenium.WebDriver, *selenium.Service, error) {
 	ops := []selenium.ServiceOption{}
-	fmt.Println(s.Config.ChromeDriverPath)
 	service, err := selenium.NewChromeDriverService(s.Config.ChromeDriverPath, int(s.Config.Port), ops...)
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "error starting the ChromeDriver server: %v")
@@ -61,9 +62,6 @@ func (s *EncoraExtractor) checkDependencies() error {
 	}
 	if s.Config.Port == 0 {
 		return errors.New("missing Config.Port")
-	}
-	if s.TimeLimit == 0 {
-		return errors.New("missing TimeLimit bigger than 0")
 	}
 	return nil
 }
@@ -107,7 +105,6 @@ func (s *EncoraExtractor) Run() (service.EncoraJobs, error) {
 	if err != nil {
 		return service.EncoraJobs{}, errors.Wrap(err, "get URL from jobs details")
 	}
-	fmt.Println("enter in get details from jobs")
 	jobsDescriptions, err := s.GetDetailsFromJobURL(jobsDetailsURLs)
 	if err != nil {
 		return service.EncoraJobs{}, errors.Wrap(err, "get details from jobs")
@@ -159,8 +156,27 @@ func (s *EncoraExtractor) GetDetailsURL() ([]string, error) {
 
 func (s *EncoraExtractor) GetDetailsFromJobURL(urls []string) ([]string, error) {
 	listOfData := []string{}
+	progressBar := bubbletea.LoadModel{}
+	if s.IsVisualExecution {
+		progressBar = bubbletea.LoadModel{
+			Progress:          progress.New(progress.WithDefaultGradient()),
+			CurrentPercentage: 0}
+
+		var wg sync.WaitGroup
+		wg.Add(1)
+		go func() {
+			progressBar.CreateProgressBar()
+			wg.Done()
+		}()
+
+	}
 	for index, currentUrl := range urls {
-		fmt.Println(index, "of", len(urls))
+		if s.IsVisualExecution {
+			progressBar.CurrentPercentage = float64(index+1) / float64(len(urls))
+		}
+		if s.DebugLevel > 0 {
+			s.Logger.Println(index, "of", len(urls))
+		}
 		if err := s.Wd.Get(currentUrl); err != nil {
 			return nil, errors.Wrap(err, "get careers.encora.com")
 		}
@@ -179,6 +195,9 @@ func (s *EncoraExtractor) GetDetailsFromJobURL(urls []string) ([]string, error) 
 			}
 			time.Sleep(1 * time.Second)
 		}
+	}
+	if s.IsVisualExecution {
+		progressBar.CurrentPercentage = 1
 	}
 	return listOfData, nil
 

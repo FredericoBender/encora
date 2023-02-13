@@ -11,5 +11,6 @@ CREATE TABLE public.jobs (
 	country varchar NOT NULL,
 	url text NOT NULL,
 	description text NOT NULL DEFAULT ''::text,
+	created_at timestamptz NOT NULL DEFAULT now(),
 	CONSTRAINT jobs_pk PRIMARY KEY (job_id)
 );
